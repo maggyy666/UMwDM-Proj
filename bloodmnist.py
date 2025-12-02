@@ -1,12 +1,13 @@
 """
-BloodMNIST - Klasyfikacja typów komórek krwi
+BloodMNIST Blood Cell Classification Pipeline
 
-Kompletny pipeline do klasyfikacji 8 typów komórek krwi:
-- EDA (eksploracyjna analiza danych)
-- Baseline model (SimpleCNN)
-- Ulepszony model (DeeperCNN z class weights)
-- Ewaluacja i porównanie wyników
-- Hyperparameter tuning
+A complete deep learning pipeline for classifying 8 types of blood cells from
+microscopic images using the BloodMNIST dataset. The pipeline includes:
+- Exploratory Data Analysis (EDA)
+- Baseline CNN model (SimpleCNN)
+- Improved CNN model (DeeperCNN with class weights)
+- Model evaluation and comparison
+- Hyperparameter tuning capabilities
 """
 
 import numpy as np
@@ -23,7 +24,6 @@ from collections import Counter
 import seaborn as sns
 import random
 
-# Seed dla reproducibility
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
@@ -33,37 +33,43 @@ if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-# Konfiguracja
 BATCH_SIZE = 64
 EPOCHS = 20
 LEARNING_RATE = 0.001
-USE_CLASS_WEIGHTS = True  # Ważenie klas w loss
-USE_AUGMENTATION = True   # Augmentacja danych
+USE_CLASS_WEIGHTS = True
+USE_AUGMENTATION = True
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Nazwy klas BloodMNIST
 CLASS_NAMES = [
-    "basophil",      # bazofile
-    "eosinophil",    # eozynofile  
-    "erythroblast",  # erytroblasty
-    "immature granulocyte",  # granulocyty niedojrzałe
-    "lymphocyte",    # limfocyty
-    "monocyte",      # monocyty
-    "neutrophil",    # neutrofile
-    "platelet"       # płytki
+    "basophil",
+    "eosinophil",
+    "erythroblast",
+    "immature granulocyte",
+    "lymphocyte",
+    "monocyte",
+    "neutrophil",
+    "platelet"
 ]
 
 print(f"Using device: {DEVICE}")
 
 
 def load_data(use_augmentation=USE_AUGMENTATION):
-    """Wczytuje dane BloodMNIST z augmentacją i normalizacją"""
+    """
+    Load BloodMNIST dataset with data preprocessing and augmentation.
+    
+    Args:
+        use_augmentation (bool): Whether to apply data augmentation to training set.
+                                 Defaults to USE_AUGMENTATION global constant.
+    
+    Returns:
+        tuple: A tuple containing (train_loader, val_loader, test_loader, dataset_train).
+               DataLoaders are configured with appropriate batch sizes and transforms.
+    """
     print("\n=== Wczytywanie danych ===")
     
-    # Normalizacja (mean i std dla RGB)
     normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     
-    # Transformacja dla train (z augmentacją jeśli włączona)
     if use_augmentation:
         train_transform = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
@@ -78,20 +84,17 @@ def load_data(use_augmentation=USE_AUGMENTATION):
             normalize
         ])
     
-    # Transformacja dla val/test (bez augmentacji)
     val_test_transform = transforms.Compose([
         transforms.ToTensor(),
         normalize
     ])
     
-    # Wczytaj dane
     data_class = BloodMNIST
     
     dataset_train = data_class(split='train', transform=train_transform, download=True)
     dataset_val = data_class(split='val', transform=val_test_transform, download=True)
     dataset_test = data_class(split='test', transform=val_test_transform, download=True)
     
-    # Stwórz DataLoadery
     train_loader = DataLoader(dataset_train, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(dataset_val, batch_size=BATCH_SIZE, shuffle=False)
     test_loader = DataLoader(dataset_test, batch_size=BATCH_SIZE, shuffle=False)
@@ -105,7 +108,16 @@ def load_data(use_augmentation=USE_AUGMENTATION):
 
 
 def compute_class_weights(dataset):
-    """Oblicza wagi klas na podstawie rozkładu"""
+    """
+    Compute class weights inversely proportional to class frequency.
+    
+    Args:
+        dataset: PyTorch dataset containing (image, label) pairs.
+    
+    Returns:
+        torch.Tensor: Class weights tensor of shape (num_classes,) on the specified device.
+                     Weights are normalized such that rare classes receive higher weights.
+    """
     labels = []
     for i in range(len(dataset)):
         _, label = dataset[i]
@@ -115,7 +127,6 @@ def compute_class_weights(dataset):
     counts = Counter(labels)
     total = sum(counts.values())
     
-    # Wagi odwrotnie proporcjonalne do liczebności
     class_weights = [total / (len(CLASS_NAMES) * counts[i]) for i in range(len(CLASS_NAMES))]
     class_weights = torch.tensor(class_weights, dtype=torch.float32).to(DEVICE)
     
@@ -124,17 +135,22 @@ def compute_class_weights(dataset):
 
 
 def plot_samples(dataset):
-    """Wyświetla przykładowe obrazy z każdej klasy"""
+    """
+    Visualize sample images from each blood cell class.
+    
+    Args:
+        dataset: PyTorch dataset containing blood cell images.
+    
+    Generates a 2x4 grid of sample images (2 per class) and saves to 'sample_images.png'.
+    """
     print("\n=== Przykładowe obrazy ===")
     
-    # Zbierz po 2 obrazy z każdej klasy
     samples_per_class = 2
     fig, axes = plt.subplots(2, 4, figsize=(12, 6))
     axes = axes.flatten()
     
     class_counts = {i: 0 for i in range(len(CLASS_NAMES))}
     
-    # Iteruj przez dataset bezpośrednio
     for i in range(len(dataset)):
         img, label = dataset[i]
         label_idx = int(label) if isinstance(label, (int, np.integer)) else int(label.item())
@@ -142,7 +158,6 @@ def plot_samples(dataset):
         if class_counts[label_idx] < samples_per_class:
             idx = label_idx * samples_per_class + class_counts[label_idx]
             if idx < len(axes):
-                # Konwertuj różne typy obrazów na numpy array dla matplotlib
                 if isinstance(img, torch.Tensor):
                     img_np = img.permute(1, 2, 0).numpy()
                 else:
@@ -166,12 +181,19 @@ def plot_samples(dataset):
 
 
 def plot_class_distribution(dataset):
-    """Rysuje wykres liczebności klas"""
+    """
+    Plot class frequency distribution bar chart.
+    
+    Args:
+        dataset: PyTorch dataset containing labeled samples.
+    
+    Generates a bar chart showing the number of samples per class and saves to
+    'class_distribution.png'. Also prints the distribution dictionary.
+    """
     print("\n=== Rozkład klas ===")
     
     class_counts = {i: 0 for i in range(len(CLASS_NAMES))}
     
-    # Iteruj przez dataset bezpośrednio
     for i in range(len(dataset)):
         _, label = dataset[i]
         label_idx = int(label) if isinstance(label, (int, np.integer)) else int(label.item())
@@ -192,7 +214,18 @@ def plot_class_distribution(dataset):
 
 
 class SimpleCNN(nn.Module):
-    """Prosta CNN jako baseline"""
+    """
+    Baseline convolutional neural network for blood cell classification.
+    
+    Architecture:
+        - 3 convolutional blocks with max pooling
+        - Adaptive average pooling
+        - 2 fully connected layers with dropout
+    
+    Args:
+        num_classes (int): Number of output classes. Defaults to 8.
+        dropout (float): Dropout probability in classifier. Defaults to 0.5.
+    """
     def __init__(self, num_classes=8, dropout=0.5):
         super(SimpleCNN, self).__init__()
         
@@ -225,12 +258,22 @@ class SimpleCNN(nn.Module):
 
 
 class DeeperCNN(nn.Module):
-    """Głębsza CNN - Model 2 do porównania"""
+    """
+    Deeper convolutional neural network with BatchNorm for improved performance.
+    
+    Architecture:
+        - 3 convolutional blocks with BatchNorm and max pooling
+        - Adaptive average pooling
+        - 3 fully connected layers with dropout
+    
+    Args:
+        num_classes (int): Number of output classes. Defaults to 8.
+        dropout (float): Dropout probability in classifier. Defaults to 0.5.
+    """
     def __init__(self, num_classes=8, dropout=0.5):
         super(DeeperCNN, self).__init__()
         
         self.features = nn.Sequential(
-            # Block 1
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
@@ -239,7 +282,6 @@ class DeeperCNN(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
             
-            # Block 2
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
@@ -248,7 +290,6 @@ class DeeperCNN(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
             
-            # Block 3
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
@@ -276,10 +317,30 @@ class DeeperCNN(nn.Module):
 
 
 def train_model(model, train_loader, val_loader, class_weights=None, model_name="model"):
-    """Trenuje model"""
+    """
+    Train a neural network model with validation monitoring.
+    
+    Args:
+        model: PyTorch neural network model to train.
+        train_loader: DataLoader for training data.
+        val_loader: DataLoader for validation data.
+        class_weights (torch.Tensor, optional): Class weights for loss function to handle
+                                                class imbalance. Defaults to None.
+        model_name (str): Name identifier for saving model and plots. Defaults to "model".
+    
+    Returns:
+        tuple: (model, train_losses, val_accuracies, best_val_acc)
+               - model: Trained model
+               - train_losses: List of training losses per epoch
+               - val_accuracies: List of validation accuracies per epoch
+               - best_val_acc: Best validation accuracy achieved
+    
+    Saves:
+        - Best model weights to 'best_{model_name}.pth'
+        - Learning curves plot to 'learning_curves_{model_name}.png'
+    """
     print(f"\n=== Trening: {model_name} ===")
     
-    # Loss z class weights jeśli podane
     if class_weights is not None:
         criterion = nn.CrossEntropyLoss(weight=class_weights)
         print("Używam class weights w loss")
@@ -294,14 +355,11 @@ def train_model(model, train_loader, val_loader, class_weights=None, model_name=
     best_val_acc = 0.0
     
     for epoch in range(EPOCHS):
-        # Training
         model.train()
         train_loss = 0.0
         
         for images, labels in train_loader:
-            # ToTensor już konwertuje do [0,1], nie trzeba dzielić przez 255
             images = images.float()
-            # Obsłuż różne formaty labeli
             if labels.dim() > 1:
                 labels = labels.squeeze()
             labels = labels.long()
@@ -320,7 +378,6 @@ def train_model(model, train_loader, val_loader, class_weights=None, model_name=
         train_loss /= len(train_loader)
         train_losses.append(train_loss)
         
-        # Validation
         model.eval()
         correct = 0
         total = 0
@@ -343,14 +400,12 @@ def train_model(model, train_loader, val_loader, class_weights=None, model_name=
         val_acc = 100 * correct / total
         val_accuracies.append(val_acc)
         
-        # Zapisz najlepszy model
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), f'best_{model_name}.pth')
         
         print(f"Epoch [{epoch+1}/{EPOCHS}] - Loss: {train_loss:.4f}, Val Acc: {val_acc:.2f}%")
     
-    # Wykres learning curves
     plt.figure(figsize=(12, 4))
     
     plt.subplot(1, 2, 1)
@@ -373,7 +428,26 @@ def train_model(model, train_loader, val_loader, class_weights=None, model_name=
 
 
 def evaluate_model(model, test_loader, model_name="model"):
-    """Ewaluuje model na test set"""
+    """
+    Evaluate model performance on test set.
+    
+    Args:
+        model: Trained PyTorch neural network model.
+        test_loader: DataLoader for test data.
+        model_name (str): Name identifier for saving plots. Defaults to "model".
+    
+    Returns:
+        tuple: (accuracy, macro_f1)
+               - accuracy: Test accuracy percentage
+               - macro_f1: Macro-averaged F1-score
+    
+    Prints:
+        - Classification report with per-class metrics
+        - Overall accuracy and macro F1-score
+    
+    Saves:
+        - Confusion matrix heatmap to 'confusion_matrix_{model_name}.png'
+    """
     print(f"\n=== Ewaluacja: {model_name} ===")
     
     model.eval()
@@ -396,11 +470,9 @@ def evaluate_model(model, test_loader, model_name="model"):
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
     
-    # Metryki
     print("\nClassification Report:")
     print(classification_report(all_labels, all_preds, target_names=CLASS_NAMES))
     
-    # Confusion Matrix
     cm = confusion_matrix(all_labels, all_preds)
     
     plt.figure(figsize=(10, 8))
@@ -425,7 +497,17 @@ def evaluate_model(model, test_loader, model_name="model"):
 
 
 def save_results_to_file(results):
-    """Zapisuje wyniki do pliku tekstowego (do sprawozdania)"""
+    """
+    Save experiment results to a text file for reporting purposes.
+    
+    Args:
+        results (dict): Dictionary containing model results with keys as model names
+                       and values as dicts with 'acc', 'f1', 'val_acc' metrics.
+    
+    Saves:
+        Detailed results summary including configuration, model comparison table,
+        and interpretation to 'results.txt'.
+    """
     with open('results.txt', 'w', encoding='utf-8') as f:
         f.write("=" * 60 + "\n")
         f.write("WYNIKI EKSPERYMENTÓW - BLOODMNIST CLASSIFICATION\n")
@@ -448,7 +530,6 @@ def save_results_to_file(results):
             f.write(f"{name:<25} {res['val_acc']:>13.2f}  {res['acc']:>13.2f}  {res['f1']:>14.4f}\n")
         f.write("\n")
         
-        # Interpretacja
         if 'SimpleCNN' in results and 'DeeperCNN' in results:
             f.write("=" * 60 + "\n")
             f.write("INTERPRETACJA WYNIKÓW\n")
@@ -482,29 +563,33 @@ def save_results_to_file(results):
 
 
 def main():
-    """Główna funkcja"""
+    """
+    Main execution function for the complete blood cell classification pipeline.
+    
+    Executes:
+        1. Data loading and preprocessing
+        2. Exploratory data analysis (visualizations)
+        3. Class weights computation (if enabled)
+        4. Model 1 training and evaluation (SimpleCNN baseline)
+        5. Model 2 training and evaluation (DeeperCNN with improvements)
+        6. Results summary and file export
+    """
     print("=" * 50)
     print("BloodMNIST - Klasyfikacja komórek krwi")
     print("=" * 50)
     
-    # 1. Wczytaj dane
     train_loader, val_loader, test_loader, dataset_train = load_data()
     
-    # 2. EDA - przykładowe obrazy (bez transformacji dla lepszego wyświetlania)
     dataset_train_raw = BloodMNIST(split='train', download=False)
     plot_samples(dataset_train_raw)
     
-    # 3. EDA - rozkład klas (tylko train)
     plot_class_distribution(dataset_train_raw)
     
-    # 4. Oblicz class weights jeśli włączone
     class_weights = None
     if USE_CLASS_WEIGHTS:
         class_weights = compute_class_weights(dataset_train_raw)
     
     results = {}
-    
-    # === MODEL 1: SimpleCNN (baseline) ===
     print("\n" + "=" * 50)
     print("MODEL 1: SimpleCNN (baseline)")
     print("=" * 50)
@@ -519,7 +604,6 @@ def main():
     acc1, f1_1 = evaluate_model(model1, test_loader, model_name="model1")
     results['SimpleCNN'] = {'acc': acc1, 'f1': f1_1, 'val_acc': best_val_acc1}
     
-    # === MODEL 2: DeeperCNN (z class weights i augmentacją) ===
     print("\n" + "=" * 50)
     print("MODEL 2: DeeperCNN (z class weights)")
     print("=" * 50)
@@ -534,7 +618,6 @@ def main():
     acc2, f1_2 = evaluate_model(model2, test_loader, model_name="model2")
     results['DeeperCNN'] = {'acc': acc2, 'f1': f1_2, 'val_acc': best_val_acc2}
     
-    # === Podsumowanie wyników ===
     print("\n" + "=" * 50)
     print("PODSUMOWANIE WYNIKÓW")
     print("=" * 50)
@@ -543,7 +626,6 @@ def main():
     for name, res in results.items():
         print(f"{name:<20} {res['val_acc']:>10.2f}%  {res['acc']:>10.2f}%  {res['f1']:>10.4f}")
     
-    # Zapisz wyniki do pliku
     save_results_to_file(results)
     
     print("\n" + "=" * 50)
@@ -552,17 +634,24 @@ def main():
 
 
 def hyperparameter_tuning():
-    """Prosty grid search dla hiperparametrów"""
+    """
+    Perform grid search for hyperparameter optimization.
+    
+    Tests combinations of:
+        - Learning rates: [1e-3, 3e-4, 1e-4]
+        - Dropout rates: [0.3, 0.5]
+    
+    Uses DeeperCNN architecture with reduced training epochs (10) for efficiency.
+    Prints validation accuracy results for each combination and identifies best configuration.
+    """
     print("\n" + "=" * 50)
     print("HYPERPARAMETER TUNING")
     print("=" * 50)
     
-    # Wczytaj dane
     train_loader, val_loader, test_loader, dataset_train = load_data()
     dataset_train_raw = BloodMNIST(split='train', download=False)
     class_weights = compute_class_weights(dataset_train_raw) if USE_CLASS_WEIGHTS else None
     
-    # Grid do przetestowania
     learning_rates = [1e-3, 3e-4, 1e-4]
     dropouts = [0.3, 0.5]
     
@@ -577,7 +666,7 @@ def hyperparameter_tuning():
             optimizer = optim.Adam(model.parameters(), lr=lr)
             
             best_val_acc = 0.0
-            epochs_to_test = 10  # Krótszy trening dla tuning
+            epochs_to_test = 10
             
             for epoch in range(epochs_to_test):
                 model.train()
@@ -594,7 +683,6 @@ def hyperparameter_tuning():
                     loss.backward()
                     optimizer.step()
                 
-                # Quick validation
                 model.eval()
                 correct = 0
                 total = 0
@@ -620,7 +708,6 @@ def hyperparameter_tuning():
             })
             print(f"Best Val Acc: {best_val_acc:.2f}%")
     
-    # Podsumowanie
     print("\n" + "=" * 50)
     print("WYNIKI TUNINGU:")
     print(f"{'LR':<12} {'Dropout':<12} {'Val Acc':<12}")
