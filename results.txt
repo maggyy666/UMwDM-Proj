@@ -1,0 +1,43 @@
+============================================================
+WYNIKI EKSPERYMENTÓW - BLOODMNIST CLASSIFICATION
+============================================================
+
+Konfiguracja:
+  - Batch size: 64
+  - Epochs: 20
+  - Learning rate: 0.001
+  - Class weights: TAK
+  - Augmentacja: TAK
+  - Seed: 42
+
+============================================================
+PORÓWNANIE MODELI
+============================================================
+
+Model                     Val Acc (%)     Test Acc (%)    Macro F1       
+------------------------------------------------------------
+SimpleCNN                         83.76          83.25          0.7870
+DeeperCNN                         94.80          94.04          0.9319
+
+============================================================
+INTERPRETACJA WYNIKÓW
+============================================================
+
+Model 1 (SimpleCNN) - Baseline:
+  - Test accuracy: 83.25%
+  - Macro F1: 0.7870
+  - Architektura: 3 warstwy konwolucyjne (~100k parametrów)
+  - Charakterystyka: Dobrze rozpoznaje częste klasy (neutrofile, eozynofile, płytki),
+    problem z klasami rzadkimi (bazofile, monocyty)
+
+Model 2 (DeeperCNN) - Ulepszony:
+  - Test accuracy: 94.04%
+  - Macro F1: 0.9319
+  - Architektura: Głębsza CNN z BatchNorm (~200k parametrów)
+  - Ulepszenia: Class weights, augmentacja danych, BatchNorm
+  - Charakterystyka: Wyrównana jakość między klasami, wszystkie klasy powyżej F1=0.88
+
+Porównanie:
+  - Poprawa accuracy: +10.79% (83.25% → 94.04%)
+  - Poprawa macro F1: +0.1449 (0.7870 → 0.9319)
+  - Główne zyski: Lepsze rozpoznawanie klas rzadkich (bazofile, monocyty)

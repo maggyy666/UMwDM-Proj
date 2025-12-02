@@ -1,2 +1,15 @@
 venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pth
+*.jpg
+*.jpeg
+.idea/
+.vscode/
+*.log
+data/
+*.npz
+poetry.lock
 
